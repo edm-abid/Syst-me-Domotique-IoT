@@ -1,0 +1,141 @@
+// Définitions des broches
+#define PIR_PIN 3         // Broche du capteur de présence (PIR)
+#define LAMP_PIN 4        // Broche de la lampe (LED)
+#define DEVICE_PIN 5      // Broche des appareils électroniques (LED)
+#define FAN_PIN 6         // Broche du ventilateur (moteur DC)
+
+// Seuils
+#define TEMP_THRESHOLD 25 // Seuil de température pour activer le ventilateur
+
+// WiFi and ThingSpeak Configuration
+String ssid = "Simulator Wifi";  // SSID to connect to
+String password = "";            // Virtual WiFi has no password
+String host = "api.thingspeak.com"; // ThingSpeak API
+const int httpPort = 80;
+String url = "/update?api_key=FH0C8EXHVZ7YXO3X&field1="; // Replace with your ThingSpeak API Key
+
+// Global Variables
+float temperature = 0.0;
+
+void setupESP8266() {
+  // Start ESP8266 Serial Communication
+  Serial.begin(115200);
+  delay(1000); // Give the ESP8266 time to initialize
+
+  // Test AT command
+  Serial.println("AT");
+  delay(1000);
+  if (Serial.find("OK")) {
+    Serial.println("ESP8266 OK!!!");
+  } else {
+    Serial.println("ESP8266 not responding. Check wiring or baud rate.");
+    while (1); // Halt the program if ESP8266 is not responding
+  }
+
+  // Connect to WiFi
+  Serial.println("AT+CWJAP=\"" + ssid + "\",\"" + password + "\"");
+  delay(5000); // Wait for connection
+  if (Serial.find("OK")) {
+    Serial.println("Connected to WiFi!!!");
+  } else {
+    Serial.println("Failed to connect to WiFi.");
+    while (1); // Halt the program if WiFi connection fails
+  }
+
+  // Open TCP connection to the host
+  Serial.println("AT+CIPSTART=\"TCP\",\"" + host + "\"," + httpPort);
+  delay(1000);
+  if (Serial.find("OK")) {
+    Serial.println("ESP8266 Connected to server!!!");
+  } else {
+    Serial.println("Failed to connect to ThingSpeak.");
+    while (1); // Halt the program if connection to ThingSpeak fails
+  }
+}
+
+void sendData(float temperature) {
+  // Construct HTTP GET request
+  String httpPacket = "GET " + url + String(temperature) + 
+                      " HTTP/1.1\r\nHost: " + host + "\r\nConnection: close\r\n\r\n";
+  int length = httpPacket.length();
+
+  // Send message length
+  Serial.print("AT+CIPSEND=");
+  Serial.println(length);
+  delay(1000); // Wait for ESP8266 to respond
+
+  // Send HTTP request
+  if (Serial.find(">")) {
+    Serial.print(httpPacket);
+    delay(1000); // Wait for ESP8266 to send data
+    if (Serial.find("SEND OK")) {
+      Serial.println("Data sent to ThingSpeak successfully!");
+    } else {
+      Serial.println("Failed to send data to ThingSpeak.");
+    }
+  } else {
+    Serial.println("Failed to prepare ESP8266 for data sending.");
+  }
+}
+
+void setup() {
+  // Configuration des broches
+  pinMode(PIR_PIN, INPUT);
+  pinMode(LAMP_PIN, OUTPUT);
+  pinMode(DEVICE_PIN, OUTPUT);
+  pinMode(FAN_PIN, OUTPUT);
+
+  // Initialisation de l'ESP8266
+  setupESP8266();
+
+  // Démarrage de la communication série
+  Serial.println("Systeme domotique initialise.");
+}
+
+void loop() {
+  // Simulation de la température (valeur aléatoire entre 15 et 35°C)
+  temperature = random(150, 351) / 10.0; // Génère une température entre 15.0 et 35.0°C
+
+  // Lecture du capteur de présence
+  bool presence = digitalRead(PIR_PIN);      // Lecture de la présence
+
+  // Affichage des valeurs dans le moniteur série
+  Serial.print("Temperature: ");
+  Serial.print(temperature);
+  Serial.print(" °C, Presence: ");
+  Serial.println(presence ? "Detectee" : "Non detectee");
+
+  // Logique de contrôle des actionneurs
+  // Contrôle des lampes (uniquement en fonction de la présence)
+  if (presence) {
+    digitalWrite(LAMP_PIN, HIGH); // Allumer les lampes
+    Serial.println("Action: Lampes allumees (Presence detectee)");
+  } else {
+    digitalWrite(LAMP_PIN, LOW);  // Éteindre les lampes
+    Serial.println("Action: Lampes eteintes");
+  }
+
+  // Contrôle des appareils électroniques
+  if (presence) {
+    digitalWrite(DEVICE_PIN, HIGH); // Activer les appareils
+    Serial.println("Action: Appareils electroniques actives (Presence detectee)");
+  } else {
+    digitalWrite(DEVICE_PIN, LOW);  // Désactiver les appareils
+    Serial.println("Action: Appareils electroniques desactives");
+  }
+
+  // Contrôle du ventilateur
+  if (temperature > TEMP_THRESHOLD) {
+    digitalWrite(FAN_PIN, HIGH); // Activer le ventilateur
+    Serial.println("Action: Ventilateur active (Temperature > 25°C)");
+  } else {
+    digitalWrite(FAN_PIN, LOW);  // Désactiver le ventilateur
+    Serial.println("Action: Ventilateur desactive");
+  }
+
+  // Envoyer les données de température à ThingSpeak
+  sendData(temperature);
+
+  // Délai pour la stabilité
+  delay(1000); // Envoyer les données toutes les 1 secondes
+}
